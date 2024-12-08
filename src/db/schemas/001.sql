@@ -10,29 +10,18 @@ CREATE TABLE users (
     first_name VARCHAR(50) NOT NULL,
     last_name VARCHAR(50) NOT NULL,
     email BYTEA NOT NULL UNIQUE,
-    CONSTRAINT valid_email CHECK (
-        email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$'
-    ),
     hashed_password VARCHAR(255) NOT NULL,
     gender GENDER,
     phone_no BYTEA UNIQUE,
-    CONSTRAINT valid_phone_no CHECK (
-        phone_no ~* '^\+[1-9][0-9]{1,14}$'
-    ),
     birth_date DATE,
-    CONSTRAINT valid_birth_date CHECK (
-        birth_date <= CURRENT_DATE
-    ),
     id_type ID_TYPE,
     id_no BYTEA,
     nationality VARCHAR(30),
     fide_id BIGINT UNIQUE,
     fide_title FIDE_TITLE,
     fide_rating SMALLINT,
-    CONSTRAINT valid_fide_rating CHECK (fide_rating >= 0 AND fide_rating <= 3000),
     mcf_id BIGINT UNIQUE,
     mcf_rating SMALLINT,
-    CONSTRAINT valid_mcf_rating CHECK (mcf_rating >= 0 AND mcf_rating <= 3000),
     is_oku BOOLEAN DEFAULT FALSE,
     -- For refund purposes
     bank_account_no BYTEA UNIQUE,
@@ -41,8 +30,22 @@ CREATE TABLE users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP,
     verified_at TIMESTAMP,
-    deleted_at TIMESTAMP
+    deleted_at TIMESTAMP,
+
+    CONSTRAINT valid_email CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$'),
+    CONSTRAINT valid_phone_no CHECK (phone_no ~* '^\+[1-9][0-9]{1,14}$'),
+    CONSTRAINT valid_birth_date CHECK (birth_date <= CURRENT_DATE),
+    CONSTRAINT valid_fide_rating CHECK (
+        fide_rating >= 0
+        AND fide_rating <= 3000
+    ),
+    CONSTRAINT valid_mcf_rating CHECK (
+        mcf_rating >= 0
+        AND mcf_rating <= 3000
+    )
 );
+
+CREATE INDEX idx_users_email ON users(email) WHERE deleted_at IS NULL;
 
 CREATE TYPE TIME_CONTROL_TYPE AS ENUM ('simple', 'increment', 'delay', 'multi_stage');
 
@@ -68,13 +71,14 @@ CREATE TABLE time_controls (
     --     "increment_seconds": 30
     --   }
     -- ]
+
     CONSTRAINT valid_increment CHECK (increment_seconds >= 0),
     CONSTRAINT valid_stages CHECK (
-        type != 'multi_stage' OR 
-        (
-            stages IS NOT NULL AND
-            jsonb_typeof(stages) = 'array' AND
-            jsonb_array_length(stages) > 0
+        type != 'multi_stage'
+        OR (
+            stages IS NOT NULL
+            AND jsonb_typeof(stages) = 'array'
+            AND jsonb_array_length(stages) > 0
         )
     )
 );
@@ -82,83 +86,142 @@ CREATE TABLE time_controls (
 -- OTB = On The Board (physical tournament)
 CREATE TYPE TOURNAMENT_MODE AS ENUM ('otb', 'online');
 CREATE TYPE TOURNAMENT_FORMAT AS ENUM ('swiss', 'round_robin', 'single_elimination', 'double_elimination');
-CREATE TYPE TOURNAMENT_CATEGORY AS ENUM ('open', 'women', 'junior', 'senior');
+CREATE TYPE TOURNAMENT_AGE_LIMIT AS ENUM ('open', 'u8', 'u10', 'u12', 'u14', 'u16', 'u18', 'senior50', 'senior65');
+CREATE TYPE TOURNAMENT_GENDER AS ENUM ('open', 'women_only');
 CREATE TYPE TOURNAMENT_STATUS AS ENUM ('planned', 'ongoing', 'completed', 'postponed', 'cancelled');
 CREATE TYPE GAME_VARIANT AS ENUM ('standard', 'chess960');
 CREATE TYPE GAME_SPEED AS ENUM ('blitz', 'rapid', 'classical');
 
 CREATE TABLE tournaments (
     id BIGSERIAL PRIMARY KEY,
+    main_organizer_id BIGINT NOT NULL REFERENCES organizations(id) ON DELETE SET NULL,
     name VARCHAR(100) NOT NULL UNIQUE,
     mode TOURNAMENT_MODE NOT NULL DEFAULT 'otb',
     format TOURNAMENT_FORMAT NOT NULL DEFAULT 'swiss',
-    category TOURNAMENT_CATEGORY NOT NULL DEFAULT 'open',
+    age_limit TOURNAMENT_AGE_LIMIT NOT NULL DEFAULT 'open',
+    gender TOURNAMENT_GENDER NOT NULL DEFAULT 'open',
     status TOURNAMENT_STATUS NOT NULL DEFAULT 'planned',
     game_variant GAME_VARIANT NOT NULL DEFAULT 'standard',
     game_speed GAME_SPEED NOT NULL DEFAULT 'classical',
     time_control_id SMALLINT REFERENCES time_controls(id) ON DELETE SET NULL,
     start_date DATE NOT NULL,
     end_date DATE NOT NULL,
-    CONSTRAINT valid_dates CHECK (
-        end_date >= start_date
-    ),
     location VARCHAR(100) NOT NULL,
     state VARCHAR(50),
     country VARCHAR(50),
     is_fide_rated BOOLEAN DEFAULT FALSE,
     is_mcf_rated BOOLEAN DEFAULT FALSE,
     registration_fee NUMERIC(5,2) NOT NULL,
-    CONSTRAINT positive_registration_fee CHECK (registration_fee > 0 AND registration_fee <= 1000),
     registration_opens_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     registration_closes_at TIMESTAMP NOT NULL DEFAULT (start_date::timestamp - INTERVAL '1 day'),
-    CONSTRAINT valid_registration CHECK (
-        registration_opens_at < registration_closes_at AND
-        registration_closes_at <= start_date::timestamp
-    ),
     max_players SMALLINT NOT NULL,
-    CONSTRAINT valid_max_players CHECK (max_players > 0),
     min_rating SMALLINT,
-    CONSTRAINT valid_min_rating CHECK (min_rating >= 0),
     max_rating SMALLINT,
-    CONSTRAINT valid_max_rating CHECK (max_rating >= 0),
-    CONSTRAINT valid_rating_range CHECK (
-        IF (
-            min_rating IS NOT NULL AND
-            max_rating IS NOT NULL,
-            min_rating <= max_rating,
-            TRUE
-        )
-    ),
     poster_url VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP,
     updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
-    deleted_at TIMESTAMP
+    deleted_at TIMESTAMP,
+
+    CONSTRAINT valid_dates CHECK (end_date >= start_date),
+    CONSTRAINT positive_registration_fee CHECK (
+        registration_fee > 0
+        AND registration_fee <= 1000
+    ),
+    CONSTRAINT valid_registration CHECK (
+        registration_opens_at < registration_closes_at
+        AND registration_closes_at <= start_date::timestamp
+    ),
+    CONSTRAINT valid_max_players CHECK (max_players > 0),
+    CONSTRAINT valid_rating_range CHECK (
+        (min_rating IS NULL OR min_rating >= 0)
+        AND (max_rating IS NULL OR max_rating >= 0)
+        AND (min_rating IS NULL OR max_rating IS NULL OR min_rating <= max_rating)
+    )
 ) PARTITION BY RANGE (start_date);
 
-CREATE TABLE tournaments_2025
-    PARTITION OF tournaments
-    FOR VALUES FROM ('2025-01-01') TO ('2025-12-31');
+-- Add indices for frequently queried columns
+CREATE INDEX idx_tournaments_status ON tournaments(status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_tournaments_dates ON tournaments(start_date, end_date) WHERE deleted_at IS NULL;
+CREATE INDEX idx_tournaments_registration ON tournaments(registration_opens_at, registration_closes_at) WHERE deleted_at IS NULL;
+
+-- Create a function to automatically create tournament partitions
+CREATE OR REPLACE FUNCTION create_tournaments_partition()
+RETURNS void AS $$
+DECLARE
+    next_year DATE;
+    partition_name TEXT;
+    partition_sql TEXT;
+BEGIN
+    -- Calculate the start of next year
+    next_year := DATE_TRUNC('year', NOW()) + INTERVAL '1 year';
+    
+    -- Generate partition name
+    partition_name := 'tournaments_' || TO_CHAR(next_year, 'YYYY');
+    
+    -- Check if partition exists
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = partition_name
+    ) THEN
+        -- Create the partition
+        partition_sql := FORMAT(
+            'CREATE TABLE %I PARTITION OF tournaments
+            FOR VALUES FROM (%L) TO (%L)',
+            partition_name,
+            next_year,
+            next_year + INTERVAL '1 year'
+        );
+        
+        EXECUTE partition_sql;
+        
+        RAISE NOTICE 'Created tournament partition: %', partition_name;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
 
 CREATE TABLE schedules (
     tournament_id BIGINT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    match_id BIGINT NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
     agenda VARCHAR(20) NOT NULL,
     start_time TIMESTAMP NOT NULL,
     end_time TIMESTAMP NOT NULL,
-    CONSTRAINT valid_schedule_times CHECK (end_time > start_time),
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
-    PRIMARY KEY (tournament_id, agenda)
+    PRIMARY KEY (tournament_id, agenda),
+    
+    CONSTRAINT valid_schedule_times CHECK (end_time > start_time)
+);
+
+CREATE TYPE RESULT_TYPE AS ENUM ('white_win', 'black_win', 'draw');
+
+CREATE TABLE matches (
+    id BIGSERIAL PRIMARY KEY,
+    tournament_id BIGINT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    round VARCHAR(20) NOT NULL,
+    white_player_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    black_player_id BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    result RESULT_TYPE,
+    number_of_moves SMALLINT,
+
+    CONSTRAINT valid_match_players CHECK (
+        white_player_id IS NOT NULL
+        AND black_player_id IS NOT NULL
+        AND white_player_id != black_player_id
+    )
 );
 
 CREATE TABLE prizes (
     tournament_id BIGINT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
     prize_rank VARCHAR(10) NOT NULL,
     prize_amount NUMERIC(7,2) NOT NULL,
-    CONSTRAINT positive_prize_amount CHECK (prize_amount > 0),
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
-    PRIMARY KEY (tournament_id, prize_rank)
+    PRIMARY KEY (tournament_id, prize_rank),
+
+    CONSTRAINT positive_prize_amount CHECK (prize_amount > 0)
 );
 
 CREATE TABLE organizations (
@@ -208,10 +271,11 @@ CREATE TABLE transactions (
     trx_type TRANSACTION_TYPE NOT NULL,
     trx_status TRANSACTION_STATUS NOT NULL DEFAULT 'pending',
     trx_amount NUMERIC(7,2) NOT NULL,
-    CONSTRAINT positive_amount CHECK (trx_amount > 0),
     payment_method VARCHAR(50),
     payment_reference VARCHAR(100),
     processed_at TIMESTAMP,
+
+    CONSTRAINT positive_amount CHECK (trx_amount > 0),
 );
 
 -- A player can be registered to multiple tournaments and a tournament can have multiple players
@@ -220,8 +284,58 @@ CREATE TABLE registrations (
     player_id BIGINT NOT NULL REFERENCES users(id) ON DELETE SET NULL,
     registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     payment_id UUID REFERENCES transactions(id) ON DELETE RESTRICT,
-    PRIMARY KEY (tournament_id, player_id)
+    PRIMARY KEY (tournament_id, player_id),
+
+    CONSTRAINT valid_registration CHECK (
+        EXISTS (
+            SELECT 1
+            FROM tournaments t, users u
+            WHERE t.id = tournament_id
+            AND u.id = player_id
+            AND is_valid_for_category(t.age_limit, t.gender, u.birth_date, u.gender)
+            AND (
+                -- Check rating requirements if they exist
+                (
+                    t.min_rating IS NULL
+                    OR COALESCE(u.fide_rating, u.mcf_rating) >= t.min_rating
+                )
+                AND (
+                    t.max_rating IS NULL
+                    OR COALESCE(u.fide_rating, u.mcf_rating) <= t.max_rating
+                )
+            )
+        )
+    )
 );
+
+CREATE OR REPLACE FUNCTION is_valid_for_category(
+    p_age_limit TOURNAMENT_AGE_LIMIT,
+    p_tournament_gender TOURNAMENT_GENDER,
+    p_birth_date DATE,
+    p_gender GENDER
+) RETURNS BOOLEAN AS $$
+DECLARE
+    age_years INTEGER := DATE_PART('year', AGE(p_birth_date));
+BEGIN
+    -- First check gender requirement
+    IF p_tournament_gender = 'women_only' AND p_gender != 'female' THEN
+        RETURN FALSE;
+    END IF;
+
+    -- Then check age requirement
+    RETURN CASE p_age_limit
+        WHEN 'u8' THEN age_years <= 8
+        WHEN 'u10' THEN age_years <= 10
+        WHEN 'u12' THEN age_years <= 12
+        WHEN 'u14' THEN age_years <= 14
+        WHEN 'u16' THEN age_years <= 16
+        WHEN 'u18' THEN age_years <= 18
+        WHEN 'senior50' THEN age_years >= 50
+        WHEN 'senior65' THEN age_years >= 65
+        WHEN 'open' THEN TRUE
+    END;
+END;
+$$ LANGUAGE plpgsql;
 
 CREATE TABLE roles (
     id SMALLSERIAL PRIMARY KEY,
@@ -231,12 +345,13 @@ CREATE TABLE roles (
 -- A user can have multiple roles and a role can be associated with multiple users
 CREATE TABLE users_roles (
     user_id BIGINT NOT NULL,
-    CONSTRAINT fk_user_id CHECK (
-        EXISTS (SELECT 1 FROM users WHERE id = user_id) OR
-        EXISTS (SELECT 1 FROM admins WHERE id = user_id)
-    ),
     role_id SMALLINT NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-    PRIMARY KEY (user_id, role_id)
+    PRIMARY KEY (user_id, role_id),
+
+    -- user_id can be either a users.id or admins.id
+    CONSTRAINT fk_user_id CHECK (
+        NOT EXISTS (SELECT 1 FROM organizations WHERE id = user_id)
+    )
 );
 
 CREATE TABLE permissions (
