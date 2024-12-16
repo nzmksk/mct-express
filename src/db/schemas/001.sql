@@ -285,57 +285,7 @@ CREATE TABLE registrations (
     registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     payment_id UUID REFERENCES transactions(id) ON DELETE RESTRICT,
     PRIMARY KEY (tournament_id, player_id),
-
-    CONSTRAINT valid_registration CHECK (
-        EXISTS (
-            SELECT 1
-            FROM tournaments t, users u
-            WHERE t.id = tournament_id
-            AND u.id = player_id
-            AND is_valid_for_category(t.age_limit, t.gender, u.birth_date, u.gender)
-            AND (
-                -- Check rating requirements if they exist
-                (
-                    t.min_rating IS NULL
-                    OR COALESCE(u.fide_rating, u.mcf_rating) >= t.min_rating
-                )
-                AND (
-                    t.max_rating IS NULL
-                    OR COALESCE(u.fide_rating, u.mcf_rating) <= t.max_rating
-                )
-            )
-        )
-    )
 );
-
-CREATE OR REPLACE FUNCTION is_valid_for_category(
-    p_age_limit TOURNAMENT_AGE_LIMIT,
-    p_tournament_gender TOURNAMENT_GENDER,
-    p_birth_date DATE,
-    p_gender GENDER
-) RETURNS BOOLEAN AS $$
-DECLARE
-    age_years INTEGER := DATE_PART('year', AGE(p_birth_date));
-BEGIN
-    -- First check gender requirement
-    IF p_tournament_gender = 'women_only' AND p_gender != 'female' THEN
-        RETURN FALSE;
-    END IF;
-
-    -- Then check age requirement
-    RETURN CASE p_age_limit
-        WHEN 'u8' THEN age_years <= 8
-        WHEN 'u10' THEN age_years <= 10
-        WHEN 'u12' THEN age_years <= 12
-        WHEN 'u14' THEN age_years <= 14
-        WHEN 'u16' THEN age_years <= 16
-        WHEN 'u18' THEN age_years <= 18
-        WHEN 'senior50' THEN age_years >= 50
-        WHEN 'senior65' THEN age_years >= 65
-        WHEN 'open' THEN TRUE
-    END;
-END;
-$$ LANGUAGE plpgsql;
 
 CREATE TABLE roles (
     id SMALLSERIAL PRIMARY KEY,
