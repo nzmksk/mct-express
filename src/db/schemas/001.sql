@@ -173,8 +173,14 @@ CREATE TABLE matches (
         white_player_id IS NOT NULL
         AND black_player_id IS NOT NULL
         AND white_player_id != black_player_id
+    ),
+    CONSTRAINT valid_move_count CHECK (
+        number_of_moves IS NULL
+        OR (number_of_moves > 0 AND number_of_moves < 1000)
     )
 );
+
+CREATE INDEX idx_matches_tournament_id ON matches(tournament_id);
 
 CREATE TABLE prizes (
     tournament_id BIGINT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
@@ -208,6 +214,8 @@ CREATE TABLE organization_members (
     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (user_id, organization_id)
 );
+
+CREATE INDEX idx_organization_members_organization_id ON organization_members(organization_id);
 
 CREATE TABLE admins (
     id BIGINT PRIMARY KEY DEFAULT nextval('shared_id_seq'),
