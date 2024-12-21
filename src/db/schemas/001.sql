@@ -111,7 +111,6 @@ CREATE TABLE tournaments (
     country VARCHAR(50),
     is_fide_rated BOOLEAN DEFAULT FALSE,
     is_mcf_rated BOOLEAN DEFAULT FALSE,
-    registration_fee NUMERIC(5,2) NOT NULL,
     registration_opens_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     registration_closes_at TIMESTAMP NOT NULL DEFAULT (start_date::timestamp - INTERVAL '1 day'),
     max_players SMALLINT NOT NULL,
@@ -145,17 +144,64 @@ CREATE INDEX idx_tournaments_status ON tournaments(status) WHERE deleted_at IS N
 CREATE INDEX idx_tournaments_dates ON tournaments(start_date, end_date) WHERE deleted_at IS NULL;
 CREATE INDEX idx_tournaments_registration ON tournaments(registration_opens_at, registration_closes_at) WHERE deleted_at IS NULL;
 
-CREATE TABLE schedules (
+CREATE TYPE FEE_CATEGORY AS ENUM (
+    'standard',          -- Base registration fee
+    'rated',             -- For players with ratings (FIDE/MCF)
+    'unrated',           -- For players without ratings
+    'age_based',         -- For age categories (U8, U10, etc.)
+    'title_holder',      -- For titled players (GM, IM, etc.)
+    'early_bird'         -- For early bird registrations
+);
+
+CREATE TABLE tournament_fees (
     tournament_id BIGINT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
-    match_id BIGINT NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
-    agenda VARCHAR(20) NOT NULL,
-    start_time TIMESTAMP NOT NULL,
-    end_time TIMESTAMP NOT NULL,
+    category FEE_CATEGORY NOT NULL,
+    fee_amount NUMERIC(5,2) NOT NULL,
+    
+    -- Example conditions format:
+    -- For age_based:
+    -- {
+    --   "max_age": 18,
+    --   "min_age": 12
+    -- }
+    --
+    -- For rated_player:
+    -- {
+    --   "min_rating": 1800,
+    --   "max_rating": 2200,
+    --   "rating_type": "FIDE"  -- or "MCF"
+    -- }
+    --
+    -- For title_holder:
+    -- {
+    --   "titles": ["GM", "IM", "WGM"]
+    -- }
+    --
+    -- For early_bird:
+    -- {
+    --   "valid_until": "2024-05-01",
+    --   "max_redemption": 32
+    -- }
+    conditions JSONB,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
-    PRIMARY KEY (tournament_id, agenda),
-    
-    CONSTRAINT valid_schedule_times CHECK (end_time > start_time)
+    PRIMARY KEY (tournament_id, category),
+
+    CONSTRAINT positive_fee CHECK (fee_amount >= 0),
+    CONSTRAINT valid_conditions CHECK (
+        CASE category
+            WHEN 'rated' THEN 
+                (conditions->>'min_rating')::int IS NOT NULL
+            WHEN 'age_based' THEN 
+                jsonb_typeof(conditions->'max_age') = 'number'
+            WHEN 'title_holder' THEN 
+                jsonb_typeof(conditions->'titles') = 'array'
+            WHEN 'early_bird' THEN 
+                jsonb_typeof(conditions->'valid_until') = 'string'
+                AND (conditions->>'max_redemption')::int IS NOT NULL
+            ELSE true
+        END
+    )
 );
 
 CREATE TYPE RESULT_TYPE AS ENUM ('white_win', 'black_win', 'draw');
@@ -181,6 +227,19 @@ CREATE TABLE matches (
 );
 
 CREATE INDEX idx_matches_tournament_id ON matches(tournament_id);
+
+CREATE TABLE schedules (
+    tournament_id BIGINT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    match_id BIGINT NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+    agenda VARCHAR(20) NOT NULL,
+    start_time TIMESTAMP NOT NULL,
+    end_time TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_by BIGINT REFERENCES users(id) ON DELETE SET NULL,
+    PRIMARY KEY (tournament_id, agenda),
+    
+    CONSTRAINT valid_schedule_times CHECK (end_time > start_time)
+);
 
 CREATE TABLE prizes (
     tournament_id BIGINT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
@@ -254,6 +313,7 @@ CREATE TABLE registrations (
     tournament_id BIGINT NOT NULL REFERENCES tournaments(id) ON DELETE RESTRICT,
     player_id BIGINT NOT NULL REFERENCES users(id) ON DELETE SET NULL,
     registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    applied_fee_category FEE_CATEGORY,
     payment_id UUID REFERENCES transactions(id) ON DELETE RESTRICT,
     PRIMARY KEY (tournament_id, player_id),
 );
