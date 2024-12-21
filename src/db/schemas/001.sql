@@ -32,7 +32,6 @@ CREATE TABLE users (
     verified_at TIMESTAMP,
     deleted_at TIMESTAMP,
 
-    CONSTRAINT valid_email CHECK (email ~* '^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}$'),
     CONSTRAINT valid_phone_no CHECK (phone_no ~* '^\+[1-9][0-9]{1,14}$'),
     CONSTRAINT valid_birth_date CHECK (birth_date <= CURRENT_DATE),
     CONSTRAINT valid_fide_rating CHECK (
@@ -44,6 +43,36 @@ CREATE TABLE users (
         AND mcf_rating <= 3000
     )
 );
+
+-- Create a trigger to validate email before encryption
+CREATE OR REPLACE FUNCTION validate_email_before_encrypt()
+RETURNS TRIGGER AS $$
+DECLARE
+    plain_email TEXT;
+BEGIN
+    -- For INSERT operations
+    IF TG_OP = 'INSERT' THEN
+        plain_email := NEW.email::TEXT;
+        IF NOT is_valid_email(plain_email) THEN
+            RAISE EXCEPTION 'Invalid email format';
+        END IF;
+        NEW.email := encrypt_sensitive_data(plain_email);
+    -- For UPDATE operations
+    ELSIF TG_OP = 'UPDATE' AND NEW.email != OLD.email THEN
+        plain_email := NEW.email::TEXT;
+        IF NOT is_valid_email(plain_email) THEN
+            RAISE EXCEPTION 'Invalid email format';
+        END IF;
+        NEW.email := encrypt_sensitive_data(plain_email);
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER validate_email
+    BEFORE INSERT OR UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION validate_email_before_encrypt();
 
 CREATE INDEX idx_users_email ON users(email) WHERE deleted_at IS NULL;
 

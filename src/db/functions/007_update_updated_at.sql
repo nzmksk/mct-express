@@ -18,6 +18,11 @@ CREATE TRIGGER set_updated_at
     EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER set_updated_at
+    BEFORE UPDATE ON tournament_fees
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER set_updated_at
     BEFORE UPDATE ON schedules
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();
@@ -29,5 +34,10 @@ CREATE TRIGGER set_updated_at
 
 CREATE TRIGGER set_updated_at
     BEFORE UPDATE ON organizations
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER set_updated_at
+    BEFORE UPDATE ON admins
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at();
