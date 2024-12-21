@@ -1,0 +1,324 @@
+// Enums
+enum GENDER {
+  male
+  female
+}
+
+enum ID_TYPE {
+  id_card
+  passport
+}
+
+enum FIDE_TITLE {
+  GM
+  IM
+  FM
+  CM
+  WGM
+  WIM
+  WFM
+  WCM
+}
+
+enum TIME_CONTROL_TYPE {
+  simple
+  increment
+  delay
+  multi_stage
+}
+
+enum TOURNAMENT_MODE {
+  otb
+  online
+}
+
+enum TOURNAMENT_FORMAT {
+  swiss
+  round_robin
+  single_elimination
+  double_elimination
+}
+
+enum TOURNAMENT_AGE_LIMIT {
+  open
+  u8
+  u10
+  u12
+  u14
+  u16
+  u18
+  senior50
+  senior65
+}
+
+enum TOURNAMENT_GENDER {
+  open
+  women_only
+}
+
+enum TOURNAMENT_STATUS {
+  planned
+  ongoing
+  completed
+  postponed
+  cancelled
+}
+
+enum GAME_VARIANT {
+  standard
+  chess960
+}
+
+enum GAME_SPEED {
+  blitz
+  rapid
+  classical
+}
+
+enum FEE_CATEGORY {
+  standard
+  rated
+  unrated
+  age_based
+  title_holder
+  early_bird
+}
+
+enum RESULT_TYPE {
+  white_win
+  black_win
+  draw
+}
+
+enum TRANSACTION_TYPE {
+  payment
+  withdrawal
+  refund
+}
+
+enum TRANSACTION_STATUS {
+  pending
+  successful
+  failed
+  cancelled
+}
+
+// Tables
+Table users {
+  id bigint [pk, increment]
+  first_name varchar(50) [not null]
+  last_name varchar(50) [not null]
+  email bytea [not null, unique]
+  hashed_password varchar(255) [not null]
+  gender GENDER
+  phone_no bytea [unique]
+  birth_date date
+  id_type ID_TYPE
+  id_no bytea
+  nationality varchar(30)
+  fide_id bigint [unique]
+  fide_title FIDE_TITLE
+  fide_rating smallint
+  mcf_id bigint [unique]
+  mcf_rating smallint
+  is_oku boolean [default: false]
+  bank_account_no bytea [unique]
+  bank_name bytea
+  profile_picture_url varchar(255)
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp
+  verified_at timestamp
+  deleted_at timestamp
+
+  indexes {
+    email [name: "idx_users_email"]
+  }
+}
+
+Table time_controls {
+  id smallserial [pk]
+  type TIME_CONTROL_TYPE [not null]
+  base_time interval [not null]
+  increment_seconds integer
+  stages jsonb
+}
+
+Table tournaments {
+  id bigserial [pk]
+  main_organizer_id bigint [ref: > organizations.id, not null]
+  name varchar(100) [not null, unique]
+  mode TOURNAMENT_MODE [not null, default: 'otb']
+  format TOURNAMENT_FORMAT [not null, default: 'swiss']
+  age_limit TOURNAMENT_AGE_LIMIT [not null, default: 'open']
+  gender TOURNAMENT_GENDER [not null, default: 'open']
+  status TOURNAMENT_STATUS [not null, default: 'planned']
+  game_variant GAME_VARIANT [not null, default: 'standard']
+  game_speed GAME_SPEED [not null, default: 'classical']
+  time_control_id smallint [ref: > time_controls.id]
+  start_date date [not null]
+  end_date date [not null]
+  location varchar(100) [not null]
+  state varchar(50)
+  country varchar(50)
+  is_fide_rated boolean [default: false]
+  is_mcf_rated boolean [default: false]
+  registration_opens_at timestamp [not null, default: `CURRENT_TIMESTAMP`]
+  registration_closes_at timestamp [not null]
+  max_players smallint [not null]
+  min_rating smallint
+  max_rating smallint
+  poster_url varchar(255)
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp
+  updated_by bigint [ref: > users.id]
+  deleted_at timestamp
+
+  indexes {
+    status [name: "idx_tournaments_status"]
+    (start_date, end_date) [name: "idx_tournaments_dates"]
+    (registration_opens_at, registration_closes_at) [name: "idx_tournaments_registration"]
+  }
+}
+
+Table tournament_fees {
+  tournament_id bigint [pk, ref: > tournaments.id]
+  category FEE_CATEGORY [pk]
+  fee_amount numeric(5,2) [not null]
+  conditions jsonb
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_by bigint [ref: > users.id]
+}
+
+Table matches {
+  id bigserial [pk]
+  tournament_id bigint [ref: > tournaments.id, not null]
+  round varchar(20) [not null]
+  white_player_id bigint [ref: > users.id]
+  black_player_id bigint [ref: > users.id]
+  result RESULT_TYPE
+  number_of_moves smallint
+
+  indexes {
+    tournament_id
+  }
+}
+
+Table schedules {
+  tournament_id bigint [pk, ref: > tournaments.id]
+  match_id bigint [ref: > matches.id, not null]
+  agenda varchar(20) [pk]
+  start_time timestamp [not null]
+  end_time timestamp [not null]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_by bigint [ref: > users.id]
+}
+
+Table prizes {
+  tournament_id bigint [pk, ref: > tournaments.id]
+  prize_rank varchar(10) [pk]
+  prize_amount numeric(7,2) [not null]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_by bigint [ref: > users.id]
+}
+
+Table tournament_standings {
+  tournament_id bigint [pk, ref: > tournaments.id]
+  player_id bigint [pk, ref: > users.id]
+  points smallint [not null]
+  tie_break1 numeric(5,2)
+  tie_break2 numeric(5,2)
+  tie_break3 numeric(5,2)
+  rank smallint [not null]
+}
+
+Table organizations {
+  id bigint [pk, increment]
+  owner_id bigint [ref: > users.id, not null]
+  name varchar(255) [not null, unique]
+  bank_account_no bytea [not null, unique]
+  bank_name bytea [not null]
+  profile_picture_url varchar(255)
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp
+  verified_at timestamp
+  deleted_at timestamp
+}
+
+Table organization_members {
+  organization_id bigint [pk, ref: > organizations.id]
+  user_id bigint [pk, ref: > users.id]
+  role varchar(255)
+  joined_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    organization_id
+  }
+}
+
+Table admins {
+  id bigint [pk, increment]
+  first_name varchar(50) [not null]
+  last_name varchar(50) [not null]
+  email varchar(255) [not null, unique]
+  hashed_password varchar(255) [not null]
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp
+  deleted_at timestamp
+}
+
+Table transactions {
+  id uuid [pk, default: `gen_random_uuid()`]
+  tournament_id bigint [ref: > tournaments.id, not null]
+  paid_by bigint [not null]
+  paid_to bigint [not null]
+  trx_type TRANSACTION_TYPE [not null]
+  trx_status TRANSACTION_STATUS [not null, default: 'pending']
+  trx_amount numeric(7,2) [not null]
+  payment_method varchar(50)
+  payment_reference varchar(100)
+  processed_at timestamp
+}
+
+Table registrations {
+  tournament_id bigint [pk, ref: > tournaments.id]
+  player_id bigint [pk, ref: > users.id]
+  registered_at timestamp [default: `CURRENT_TIMESTAMP`]
+  applied_fee_category FEE_CATEGORY
+  payment_id uuid [ref: > transactions.id]
+}
+
+Table roles {
+  id smallserial [pk]
+  name varchar(255) [not null, unique]
+}
+
+Table users_roles {
+  user_id bigint [pk]
+  role_id smallint [pk, ref: > roles.id]
+}
+
+Table permissions {
+  id smallserial [pk]
+  name varchar(255) [not null, unique]
+}
+
+Table roles_permissions {
+  role_id smallint [pk, ref: > roles.id]
+  permission_id smallint [pk, ref: > permissions.id]
+}
+
+Table tournaments_organizers {
+  tournament_id bigint [pk, ref: > tournaments.id]
+  organizer_id bigint [pk, ref: > organizations.id]
+}
+
+Table audit_logs {
+  id bigserial [pk]
+  table_name varchar(50) [not null]
+  record_id bigint [not null]
+  action varchar(10) [not null]
+  old_data jsonb
+  new_data jsonb
+  performed_by bigint [not null]
+  performed_at timestamp [pk, default: `CURRENT_TIMESTAMP`]
+}
