@@ -252,6 +252,19 @@ CREATE TABLE prizes (
     CONSTRAINT positive_prize_amount CHECK (prize_amount > 0)
 );
 
+CREATE TABLE tournament_standings (
+    tournament_id BIGINT NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+    player_id BIGINT NOT NULL REFERENCES users(id) ON DELETE SET NULL,
+    points SMALLINT NOT NULL,
+    tie_break1 NUMERIC(5,2),
+    tie_break2 NUMERIC(5,2),
+    tie_break3 NUMERIC(5,2),
+    rank SMALLINT NOT NULL,
+    PRIMARY KEY (tournament_id, player_id),
+
+    CONSTRAINT valid_rank CHECK (rank > 0)
+);
+
 CREATE TABLE organizations (
     id BIGINT PRIMARY KEY DEFAULT nextval('shared_id_seq'),
     owner_id BIGINT NOT NULL REFERENCES users(id) ON DELETE SET NULL,
